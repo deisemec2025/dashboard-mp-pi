@@ -109,7 +109,7 @@ tbody tr:hover{background:#fff8f8}
         <i class="bi bi-arrow-clockwise me-1"></i>Atualizar agora
       </button>
       <a class="btn btn-red px-3 d-flex align-items-center" id="sheetBtn"
-         href="https://docs.google.com/spreadsheets/d/1Gpd4OZs8kZCi11sfdrxhQIArh8zbnU9WpAqqyo549h0/edit?usp=sharing&cachebust=1"
+         href="https://docs.google.com/spreadsheets/d/1Gpd4OZs8kZCi11sfdrxhQIArh8zbnU9WpAqqyo549h0/edit?usp=sharing"
          target="_blank" rel="noopener">
         <i class="bi bi-table me-1"></i>Google Planilha
       </a>
@@ -205,9 +205,19 @@ async function fetchSheet(config){
     throw new Error(payload.errors?.map(e=>e.message).join("; ") || `Erro na aba "${sheetName}"`);
   }
 
-  const cols = (payload.table?.cols || []).map((c,i)=>cleanHeader(c.label || c.id, i));
-  const rows = payload.table?.rows || [];
+  let cols = (payload.table?.cols || []).map((c,i)=>cleanHeader(c.label || c.id, i));
+  let rows = payload.table?.rows || [];
+  // Se o Google não reconheceu a linha de cabeçalho, usa a primeira linha como cabeçalho.
+  const norm = s => String(s ?? "").trim().toUpperCase();
+  if(!cols.some(c => norm(c).includes("PROCESSO")) && rows.length){
+    const first = (rows[0].c || []).map(c => c?.v ?? "");
+    if(first.some(v => norm(v).includes("PROCESSO"))){
+      cols = first.map((v,i)=>cleanHeader(v,i));
+      rows = rows.slice(1);
+    }
+  }
   const headers = cols;
+  console.log("[Dashboard] Aba", sheetName, "- linhas recebidas:", rows.length, "- cabeçalhos:", headers);
   const records = rows
     .map(r => (r.c || []).map(c => c?.v ?? ""))
     .filter(row => row.some(v => String(v ?? "").trim() !== ""))
@@ -216,7 +226,7 @@ async function fetchSheet(config){
       headers.forEach((h,i) => { r[h] = row[i] ?? null; });
       return r;
     })
-    .filter(r => String(r["Nº DO PROCESSO"] ?? "").trim() !== "");
+    .filter(r => String(r[headers[0]] ?? "").trim() !== "");
 
   return {source: sheetName, headers, records};
 }
@@ -263,7 +273,8 @@ async function loadGoogleSheet(){
     renderTabs();
     render();
     const total = Object.entries(DATA).filter(([k])=>k!=="CONSOLIDADO").reduce((sum,[,d])=>sum + d.records.length, 0);
-    setConnectionStatus(`Conectado · ${total} registros · Consolidado: ${DATA["CONSOLIDADO"].records.length}`, "ok");
+    const porAba = entries.map(([t,d])=>`${t}: ${d.records.length}`).join(" | ");
+    setConnectionStatus(`Conectado · ${total} registros · ${porAba}`, "ok");
     window.lastDataUpdate = new Date();
   }catch(err){
     console.error("Falha ao atualizar a Google Planilha:", err);
